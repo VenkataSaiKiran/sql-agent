@@ -87,11 +87,12 @@ def get_llm():
 
     # Provider 2: Hugging Face Serverless Inference API
     elif provider in ["huggingface", "hf"]:
-        from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+        from langchain_community.llms import HuggingFaceEndpoint
+        from langchain_community.chat_models.huggingface import ChatHuggingFace
 
         hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
         if not hf_token:
-            raise ValueError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not set in environment or .env file.")
+            raise ValueError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not set.")
         model = model_name or "Qwen/Qwen2.5-Coder-7B-Instruct"
         llm = HuggingFaceEndpoint(
             repo_id=model,
