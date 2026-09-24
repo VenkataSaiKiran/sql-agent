@@ -2,6 +2,7 @@
 Introspects the SQLite database to return structured table/column schema info,
 used both for UI sidebar display and groundings in LLM system prompts.
 """
+import os
 import sqlite3
 from typing import Any
 
@@ -9,14 +10,12 @@ from typing import Any
 def get_schema(db_path: str) -> dict[str, Any]:
     """
     Queries SQLite metadata tables to introspect all tables and their column types.
-
-    Args:
-        db_path (str): Path to SQLite database file.
-
-    Returns:
-        dict: Schema dictionary containing list of tables and column metadata.
+    Uses URI mode=ro to prevent read-only filesystem write errors on Vercel.
     """
-    conn = sqlite3.connect(db_path)
+    abs_path = os.path.abspath(db_path)
+    db_uri = f"file:{abs_path}?mode=ro"
+
+    conn = sqlite3.connect(db_uri, uri=True)
     cur = conn.cursor()
 
     # Query internal master table for custom user tables
@@ -37,12 +36,6 @@ def schema_as_prompt_text(schema: dict[str, Any]) -> str:
     """
     Renders structured schema dictionary into a compact text string suitable
     for inclusion in LLM prompt templates.
-
-    Args:
-        schema (dict): Schema information from get_schema().
-
-    Returns:
-        str: Formatted string list of tables and columns.
     """
     lines = []
     for table in schema["tables"]:

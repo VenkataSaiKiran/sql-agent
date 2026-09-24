@@ -207,15 +207,12 @@ def validate_sql(sql: str) -> str:
 def run_sql(sql: str, db_path: str) -> list[dict]:
     """
     Executes a validated read-only SQL query against the SQLite database file.
-
-    Args:
-        sql (str): Validated SQL SELECT query.
-        db_path (str): File path to SQLite database.
-
-    Returns:
-        list[dict]: List of query row records formatted as dictionary objects.
+    Uses URI mode=ro to prevent journal write-lock errors on cloud functions.
     """
-    conn = sqlite3.connect(db_path)
+    abs_path = os.path.abspath(db_path)
+    db_uri = f"file:{abs_path}?mode=ro"
+
+    conn = sqlite3.connect(db_uri, uri=True)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(sql)

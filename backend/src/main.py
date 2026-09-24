@@ -11,12 +11,11 @@ from schema import get_schema, schema_as_prompt_text
 
 load_dotenv()
 
-# Absolute path to SQLite demo database
-DB_PATH = os.path.join(os.path.dirname(__file__), "demo.db")
+# Absolute path resolution for Vercel deployment bundle
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "demo.db"))
 
 app = FastAPI(title="SQL Agent")
 
-# Enable CORS middleware to allow requests from browser frontends
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,28 +26,23 @@ app.add_middleware(
 
 
 class AskRequest(BaseModel):
-    """ Request schema model for natural language questions. """
     question: str
 
 
 @app.get("/schema")
 def schema_endpoint():
-    """
-    GET /schema: Returns database table and column structures to populate UI sidebar.
-    """
     if not os.path.exists(DB_PATH):
         raise HTTPException(
             status_code=500, detail="Database not found. Run seed_db.py first."
         )
-    return get_schema(DB_PATH)
+    try:
+        return get_schema(DB_PATH)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Schema error: {e}")
 
 
 @app.post("/ask")
 def ask_endpoint(req: AskRequest):
-    """
-    POST /ask: Receives a user question, processes it through the SQL Agent workflow,
-    and returns generated SQL, plain-English answer summary, and raw row data.
-    """
     if not req.question.strip():
         raise HTTPException(
             status_code=400, detail="Question cannot be empty."
@@ -58,9 +52,12 @@ def ask_endpoint(req: AskRequest):
             status_code=500, detail="Database not found. Run seed_db.py first."
         )
 
-    schema = get_schema(DB_PATH)
-    schema_text = schema_as_prompt_text(schema)
-    result = ask_agent(req.question, schema_text, DB_PATH)
+    try:
+        schema = get_schema(DB_PATH)
+        schema_text = schema_as_prompt_text(schema)
+        result = ask_agent(req.question, schema_text, DB_PATH)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent error: {e}")
 
     return {
         "in_scope": result.in_scope,
@@ -72,9 +69,6 @@ def ask_endpoint(req: AskRequest):
 
 @app.get("/health")
 def health():
-    """
-    GET /health: Returns current backend health status and active model provider info.
-    """
     return {
         "status": "ok",
         "provider": os.getenv("MODEL_PROVIDER", "claude"),
