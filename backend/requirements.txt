@@ -1,0 +1,14 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-dotenv==1.2.2
+sqlglot==25.24.5
+
+# LangChain Core & Provider Integrations
+langchain==0.3.18
+langchain-core==0.3.35
+langchain-community==0.3.17
+langchain-anthropic==0.3.5
+langchain-huggingface==0.1.2
+langchain-ollama==0.2.3
+
