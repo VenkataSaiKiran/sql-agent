@@ -1,6 +1,13 @@
 """ FastAPI REST server providing schema introspection and natural language SQL query endpoints. """
 
 import os
+import sys
+
+# Vercel's Python runtime imports this file directly without adding its
+# own folder to sys.path, so sibling imports (agent, schema) fail unless
+# we add it explicitly.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
