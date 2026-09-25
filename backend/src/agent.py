@@ -87,8 +87,8 @@ def get_llm():
 
     # Provider 2: Hugging Face Serverless Inference API
     elif provider in ["huggingface", "hf"]:
-        from langchain_community.llms import HuggingFaceEndpoint
-        from langchain_community.chat_models.huggingface import ChatHuggingFace
+        from langchain_huggingface.llms import HuggingFaceEndpoint
+        from langchain_huggingface.chat_models.huggingface import ChatHuggingFace
 
         hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
         if not hf_token:
