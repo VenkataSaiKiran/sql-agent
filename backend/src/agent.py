@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 import sqlglot
 from sqlglot import exp
-from langchain_core.prompts import ChatPromptTemplate
+from anthropic import Anthropic
+from openai import OpenAI
 
 load_dotenv()
 
@@ -63,57 +64,68 @@ class AgentResult:
     rows: list[dict] = field(default_factory=list)
     error: str | None = None
 
+import os
+from anthropic import Anthropic
+from openai import OpenAI
 
-def get_llm():
-    """
-    LLM Factory function: Reads settings from .env and instantiates the appropriate
-    LangChain ChatModel provider (Paid Claude, Free Hugging Face, or Local Ollama).
-
-    Returns:
-        BaseChatModel: An initialized LangChain chat model.
-    """
+def _call_llm(system_prompt: str, user_prompt: str, max_tokens: int) -> str:
     provider = os.getenv("MODEL_PROVIDER", "claude").lower().strip()
     model_name = os.getenv("MODEL_NAME", "").strip()
 
-    # Provider 1: Anthropic Claude
-    if provider in ["claude", "anthropic"]:
-        from langchain_anthropic import ChatAnthropic
-
+    if provider in ("claude", "anthropic"):
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY is not set in environment or .env file.")
-        model = model_name or "claude-3-haiku-20240307"
-        return ChatAnthropic(model=model, anthropic_api_key=api_key, temperature=0.0)
-
-    # Provider 2: Hugging Face Serverless Inference API
-    elif provider in ["huggingface", "hf"]:
-        from langchain_huggingface.llms import HuggingFaceEndpoint
-        from langchain_huggingface.chat_models.huggingface import ChatHuggingFace
-
-        hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
-        if not hf_token:
-            raise ValueError("HUGGINGFACEHUB_API_TOKEN or HF_TOKEN is not set.")
-        model = model_name or "Qwen/Qwen2.5-Coder-7B-Instruct"
-        llm = HuggingFaceEndpoint(
-            repo_id=model,
-            huggingfacehub_api_token=hf_token,
-            temperature=0.1,
-            max_new_tokens=512,
+            raise ValueError("ANTHROPIC_API_KEY is not set.")
+        client = Anthropic(api_key=api_key)
+        model = model_name or "claude-sonnet-4-6"
+        resp = client.messages.create(
+            model=model, max_tokens=max_tokens, system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
         )
-        return ChatHuggingFace(llm=llm)
+        return "".join(b.text for b in resp.content if b.type == "text")
 
-    # Provider 3: Ollama Local Models
-    elif provider == "ollama":
-        from langchain_ollama import ChatOllama
+    # HF Inference Providers, Groq, and Ollama are all OpenAI-compatible —
+    # only the base_url, key, and default model differ.
+    provider_config = {
+        "huggingface": {
+            "base_url": "https://router.huggingface.co/v1",
+            "api_key": os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN"),
+            "default_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        },
+        "hf": {  # alias
+            "base_url": "https://router.huggingface.co/v1",
+            "api_key": os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN"),
+            "default_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        },
+        "groq": {
+            "base_url": "https://api.groq.com/openai/v1",
+            "api_key": os.getenv("GROQ_API_KEY"),
+            "default_model": "llama-3.1-8b-instant",
+        },
+        "ollama": {
+            "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434") + "/v1",
+            "api_key": "ollama",  # unused but required by the client
+            "default_model": "qwen2.5-coder:7b",
+        },
+    }
+    if provider not in provider_config:
+        raise ValueError(f"Unsupported MODEL_PROVIDER '{provider}'.")
 
-        model = model_name or "qwen2.5-coder:7b"
-        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        return ChatOllama(model=model, base_url=base_url, temperature=0.0)
+    cfg = provider_config[provider]
+    if not cfg["api_key"]:
+        raise ValueError(f"API key/token for provider '{provider}' is not set.")
 
-    else:
-        raise ValueError(
-            f"Unsupported MODEL_PROVIDER '{provider}'. Choose 'claude', 'huggingface', or 'ollama'."
-        )
+    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"])
+    resp = client.chat.completions.create(
+        model=model_name or cfg["default_model"],
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+    return resp.choices[0].message.content
+
 
 
 def _extract_json(text: str) -> dict:
@@ -148,28 +160,8 @@ def _extract_json(text: str) -> dict:
 
 
 def generate_sql(question: str, schema_text: str) -> dict:
-    """
-    Translates a natural language question into a SQLite query given the database schema.
-
-    Args:
-        question (str): User's input question.
-        schema_text (str): Formatted string representation of database tables/columns.
-
-    Returns:
-        dict: Decision dictionary containing {"in_scope": bool, "sql": str, ...}.
-    """
-    llm = get_llm()
-
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", SYSTEM_PROMPT_TEMPLATE), ("user", "{question}")]
-    )
-
-    chain = prompt | llm
-    response = chain.invoke(
-        {"schema_text": schema_text, "question": question}
-    )
-
-    text = response.content if hasattr(response, "content") else str(response)
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(schema_text=schema_text)
+    text = _call_llm(system_prompt, question, max_tokens=500)
     return _extract_json(text)
 
 
@@ -222,33 +214,12 @@ def run_sql(sql: str, db_path: str) -> list[dict]:
 
 
 def synthesize_answer(question: str, rows: list[dict]) -> str:
-    """
-    Generates a concise, plain-English summary answer based on execution results.
-
-    Args:
-        question (str): Original user question.
-        rows (list[dict]): Query result rows from SQLite execution.
-
-    Returns:
-        str: Plain-English summary text formatted with markdown.
-    """
-    llm = get_llm()
-    prompt = ChatPromptTemplate.from_messages([("user", ANSWER_PROMPT_TEMPLATE)])
-
-    # Limit sample size to 5 rows so the LLM writes an executive overview
-    # rather than echoing long tables into text.
     sample_rows = rows[:5] if len(rows) > 5 else rows
-
-    chain = prompt | llm
-    response = chain.invoke(
-        {
-            "question": question,
-            "total_rows": len(rows),
-            "rows_sample_json": json.dumps(sample_rows, default=str),
-        }
+    prompt = ANSWER_PROMPT_TEMPLATE.format(
+        question=question, total_rows=len(rows),
+        rows_sample_json=json.dumps(sample_rows, default=str),
     )
-    text = response.content if hasattr(response, "content") else str(response)
-    return text.strip()
+    return _call_llm("You are a helpful data assistant.", prompt, max_tokens=200).strip()
 
 
 def ask_agent(question: str, schema_text: str, db_path: str) -> AgentResult:
